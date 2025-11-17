@@ -54,3 +54,4 @@ metrics:
 logging:
   level: "debug"
   format: "json"
+

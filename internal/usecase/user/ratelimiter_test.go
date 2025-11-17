@@ -3,6 +3,7 @@ package user
 import (
 	"context"
 	"errors"
+	"strconv"
 	"testing"
 	"time"
 
@@ -48,6 +49,56 @@ func (m *mockCache) Set(ctx context.Context, key string, value []byte, ttl time.
 
 	m.storage[key] = value
 	return nil
+}
+
+func (m *mockCache) Increment(ctx context.Context, key string, value uint64) (uint64, error) {
+	if m.alwaysFail {
+		return 0, errors.New("cache broken")
+	}
+
+	current, exists := m.storage[key]
+	if !exists {
+		newValue := value
+		m.storage[key] = []byte(strconv.FormatUint(newValue, 10))
+		return newValue, nil
+	}
+
+	currentInt, err := strconv.ParseUint(string(current), 10, 64)
+	if err != nil {
+		return 0, err
+	}
+
+	newValue := currentInt + value
+	m.storage[key] = []byte(strconv.FormatUint(newValue, 10))
+	return newValue, nil
+}
+
+func (m *mockCache) Decrement(ctx context.Context, key string, value uint64) (uint64, error) {
+	if m.alwaysFail {
+		return 0, errors.New("cache broken")
+	}
+
+	// Получаем текущее значение
+	current, exists := m.storage[key]
+	if !exists {
+		m.storage[key] = []byte("0")
+		return 0, nil
+	}
+
+	currentInt, err := strconv.ParseUint(string(current), 10, 64)
+	if err != nil {
+		return 0, err
+	}
+
+	var newValue uint64
+	if value > currentInt {
+		newValue = 0
+	} else {
+		newValue = currentInt - value
+	}
+
+	m.storage[key] = []byte(strconv.FormatUint(newValue, 10))
+	return newValue, nil
 }
 
 func (m *mockCache) Close() error {
@@ -96,6 +147,36 @@ func TestRateLimiter_AllowRequest(t *testing.T) {
 			t.Errorf("user2 должен быть разрешен")
 		}
 	})
+}
+
+func TestRateLimiter_30RequestsPerMinute(t *testing.T) {
+	ctx := context.Background()
+	mockCache := newMockCache()
+
+	cfg := config.Config{
+		RateLimiter: config.RateLimiter{
+			Enabled:           true,
+			RequestsPerWindow: 30, // 30 запросов
+			WindowSize:        60, // в 60 секунд
+			Storage:           "memcached",
+		},
+	}
+
+	limiter := NewRateLimiter(mockCache, cfg)
+
+	// 30 запросов должны пройти
+	for i := 0; i < 30; i++ {
+		err := limiter.AllowRequest(ctx, "user1")
+		if err != nil {
+			t.Errorf("запрос %d должен был пройти, но получил ошибку: %v", i+1, err)
+		}
+	}
+
+	// 31-й запрос должен упасть
+	err := limiter.AllowRequest(ctx, "user1")
+	if !errors.Is(err, ErrRateLimitExceeded) {
+		t.Errorf("31-й запрос должен был упасть с ошибкой лимита")
+	}
 }
 
 func TestRateLimiter_Disabled(t *testing.T) {

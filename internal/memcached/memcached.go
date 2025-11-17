@@ -2,6 +2,8 @@ package memcached
 
 import (
 	"context"
+	"errors"
+	"strconv"
 	"time"
 
 	"github.com/Caritas-Team/reviewer/internal/config"
@@ -20,6 +22,8 @@ type Cache struct {
 type CacheInterface interface {
 	Get(ctx context.Context, key string) ([]byte, error)
 	Set(ctx context.Context, key string, value []byte, ttl time.Duration) error
+	Increment(ctx context.Context, key string, value uint64) (uint64, error)
+	Decrement(ctx context.Context, key string, value uint64) (uint64, error)
 	Close() error
 }
 
@@ -74,6 +78,63 @@ func (c *Cache) Set(ctx context.Context, key string, value []byte, ttl time.Dura
 		Expiration: int32(ttl.Seconds()),
 	})
 	return err
+}
+
+func (c *Cache) Increment(ctx context.Context, key string, value uint64) (newValue uint64, err error) {
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+	if !c.enable || c.client == nil {
+		return 0, memcache.ErrCacheMiss
+	}
+	prefix := c.prefix + ":" + key
+
+	newValue, err = c.client.Increment(prefix, value)
+	if err != nil {
+		// Если ключа нет - создаем его с начальным значением
+		if errors.Is(err, memcache.ErrCacheMiss) {
+			initial := value
+			err = c.client.Set(&memcache.Item{
+				Key:        prefix,
+				Value:      []byte(strconv.FormatUint(initial, 10)),
+				Expiration: int32(c.ttl.Seconds()),
+			})
+			if err != nil {
+				return 0, err
+			}
+			return initial, nil
+		}
+		return 0, err
+	}
+	return newValue, nil
+}
+
+func (c *Cache) Decrement(ctx context.Context, key string, value uint64) (newValue uint64, err error) {
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+	if !c.enable || c.client == nil {
+		return 0, memcache.ErrCacheMiss
+	}
+	prefix := c.prefix + ":" + key
+
+	newValue, err = c.client.Decrement(prefix, value)
+	if err != nil {
+		// Если ключа нет - создаем его с нулевым значением
+		if errors.Is(err, memcache.ErrCacheMiss) {
+			err = c.client.Set(&memcache.Item{
+				Key:        prefix,
+				Value:      []byte("0"),
+				Expiration: int32(c.ttl.Seconds()),
+			})
+			if err != nil {
+				return 0, err
+			}
+			return 0, nil
+		}
+		return 0, err
+	}
+	return newValue, nil
 }
 
 func (c *Cache) Close() error {

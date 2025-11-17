@@ -35,15 +35,25 @@ func (rl *RateLimiter) AllowRequest(ctx context.Context, userID string) error {
 
 	key := "rate_limit:" + userID
 
-	_, err := rl.cache.Get(ctx, key)
-	if err == nil {
-		return ErrRateLimitExceeded
+	newValue, err := rl.cache.Increment(ctx, key, 1)
+	if err != nil {
+		return nil
 	}
 
-	err = rl.cache.Set(ctx, key, []byte("1"), rl.window)
-	if err != nil {
-		slog.Info("Rate limit check", "error", err, "key", key)
-		return nil
+	// Устанавливаем TTL при первом запросе
+	if newValue == 1 {
+		err := rl.cache.Set(ctx, key, []byte("1"), rl.window)
+		if err != nil {
+			return err
+		}
+	}
+
+	if newValue > uint64(rl.requests) {
+		_, err := rl.cache.Decrement(ctx, key, 1)
+		if err != nil {
+			slog.Warn("Failed to decrement rate limit counter", "error", err)
+		}
+		return ErrRateLimitExceeded
 	}
 
 	return nil

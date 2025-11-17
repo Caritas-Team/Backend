@@ -4,6 +4,10 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"os"
+	"os/signal"
+	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/Caritas-Team/reviewer/internal/config"
@@ -11,62 +15,117 @@ import (
 	"github.com/Caritas-Team/reviewer/internal/logger"
 	"github.com/Caritas-Team/reviewer/internal/memcached"
 	"github.com/Caritas-Team/reviewer/internal/metrics"
-	"github.com/Caritas-Team/reviewer/internal/usecase/user"
 )
 
 func main() {
+	// Конфиг
 	cfg, err := config.Load()
 	if err != nil {
 		slog.Error("config load error", "err", err)
 		return
 	}
 
+	// Базовый контекст
 	ctx := context.Background()
-	cache, err := memcached.NewCache(ctx, cfg)
+
+	// Глобальный логер
+	logger.InitGlobalLogger(cfg)
+
+	// Контекст, отменяемый по SIGINT/SIGTERM
+	rootCtx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	// Кэш
+	cache, err := memcached.NewCache(rootCtx, cfg)
 	if err != nil {
 		slog.Error("cache initialization failed", "err", err)
 		return
 	}
-	defer func(cache *memcached.Cache) {
-		err := cache.Close()
-		if err != nil {
-			slog.Error("cache close error", "err", err)
-		}
-	}(cache)
 
-	rateLimiter := user.NewRateLimiter(cache, cfg)
-
-	rateLimitMiddleware := handler.NewRateLimiterMiddleware(rateLimiter)
+	// ready + HTTP маршруты для тестов и прочего
+	var ready atomic.Bool
+	ready.Store(true)
 
 	mux := http.NewServeMux()
+
+	// Для теста CORS. МОЖНО УДАЛЯТЬ
 	mux.HandleFunc("/ping", func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte("pong"))
 	})
 
-	var finalHandler http.Handler = mux
-	finalHandler = rateLimitMiddleware.Handler(finalHandler)
+	// Для проверки, готов ли сервер принимать новый трафик. МОЖНО УДАЛЯТЬ
+	mux.HandleFunc("/readyz", func(w http.ResponseWriter, r *http.Request) {
+		if ready.Load() {
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte("ok"))
+			return
+		}
+		http.Error(w, "shutting down", http.StatusServiceUnavailable)
+	})
 
-	finalHandler = handler.CORS(handler.CORSConfig{
+	// Метрики
+	metrics.InitMetricsOn(mux)
+
+	// CORS
+	h := handler.CORS(handler.CORSConfig{
 		AllowedOrigins:   cfg.CORS.AllowedOrigins,
 		AllowedMethods:   cfg.CORS.AllowedMethods,
 		AllowedHeaders:   cfg.CORS.AllowedHeaders,
-		AllowCredentials: true, // вынести в config.yaml при надобности
-		MaxAgeSeconds:    3600, // вынести в config.yaml при надобности
-	})(finalHandler)
+		AllowCredentials: true,
+		MaxAgeSeconds:    3600,
+	})(mux)
 
-	metrics.InitMetrics()
-	logger.InitGlobalLogger(cfg)
-
+	// HTTP сервер
 	srv := &http.Server{
 		Addr:         cfg.Server.Addr(),
-		Handler:      finalHandler,
+		Handler:      h,
 		ReadTimeout:  cfg.Server.ReadTimeout(),
 		WriteTimeout: cfg.Server.WriteTimeout(),
 		IdleTimeout:  5 * time.Minute,
 	}
 
-	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		slog.Error("server start failed", "err", err)
-		return
+	// Запуск сервера
+	errCh := make(chan error, 1)
+	go func() {
+		slog.Info("http server listening", "addr", srv.Addr, "pid", os.Getpid())
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			errCh <- err
+			return
+		}
+		errCh <- nil
+	}()
+
+	// Сигнал или ошибка сервера
+	select {
+	case <-rootCtx.Done():
+		slog.Info("shutdown signal received")
+	case err := <-errCh:
+		if err != nil {
+			slog.Error("server failed", "err", err)
+			_ = cache.Close()
+			return
+		}
 	}
+
+	// Graceful shutdown
+	ready.Store(false)
+
+	graceTime := 30 * time.Second
+	shCtx, cancel := context.WithTimeout(ctx, graceTime)
+	defer cancel()
+
+	if err := srv.Shutdown(shCtx); err != nil {
+		slog.Error("http shutdown error", "err", err)
+	} else {
+		slog.Info("http server shutdown complete")
+	}
+
+	if err := cache.Close(); err != nil {
+		slog.Error("cache close error", "err", err)
+	} else {
+		slog.Info("cache closed")
+	}
+
+	slog.Info("graceful shutdown finished")
+
 }
