@@ -3,7 +3,7 @@ package user
 import (
 	"context"
 	"errors"
-	"log/slog"
+	"math"
 	"time"
 
 	"github.com/Caritas-Team/reviewer/internal/config"
@@ -16,7 +16,7 @@ type RateLimiter struct {
 	cache    memcached.CacheInterface
 	enabled  bool
 	window   time.Duration
-	requests uint64
+	requests int
 }
 
 func NewRateLimiter(cache memcached.CacheInterface, cfg config.Config) *RateLimiter {
@@ -24,7 +24,7 @@ func NewRateLimiter(cache memcached.CacheInterface, cfg config.Config) *RateLimi
 		cache:    cache,
 		enabled:  cfg.RateLimiter.Enabled,
 		window:   time.Duration(cfg.RateLimiter.WindowSize) * time.Second,
-		requests: uint64(cfg.RateLimiter.RequestsPerWindow),
+		requests: cfg.RateLimiter.RequestsPerWindow,
 	}
 }
 
@@ -48,11 +48,14 @@ func (rl *RateLimiter) AllowRequest(ctx context.Context, userID string) error {
 		}
 	}
 
-	if newValue > rl.requests {
-		_, err := rl.cache.Decrement(ctx, key, 1)
-		if err != nil {
-			slog.Warn("Failed to decrement rate limit counter", "error", err)
-		}
+	if newValue > math.MaxInt {
+		// Если newValue больше максимального int - всё равно превышение
+		_, _ = rl.cache.Decrement(ctx, key, 1)
+		return ErrRateLimitExceeded
+	}
+
+	if int(newValue) > rl.requests && rl.requests > 0 {
+		_, _ = rl.cache.Decrement(ctx, key, 1)
 		return ErrRateLimitExceeded
 	}
 
