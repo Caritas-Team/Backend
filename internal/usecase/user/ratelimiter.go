@@ -16,7 +16,7 @@ type RateLimiter struct {
 	cache    memcached.CacheInterface
 	enabled  bool
 	window   time.Duration
-	requests int
+	requests uint64
 }
 
 func NewRateLimiter(cache memcached.CacheInterface, cfg config.Config) *RateLimiter {
@@ -24,7 +24,7 @@ func NewRateLimiter(cache memcached.CacheInterface, cfg config.Config) *RateLimi
 		cache:    cache,
 		enabled:  cfg.RateLimiter.Enabled,
 		window:   time.Duration(cfg.RateLimiter.WindowSize) * time.Second,
-		requests: cfg.RateLimiter.RequestsPerWindow,
+		requests: uint64(cfg.RateLimiter.RequestsPerWindow),
 	}
 }
 
@@ -48,7 +48,7 @@ func (rl *RateLimiter) AllowRequest(ctx context.Context, userID string) error {
 		}
 	}
 
-	if newValue > uint64(rl.requests) {
+	if newValue > rl.requests {
 		_, err := rl.cache.Decrement(ctx, key, 1)
 		if err != nil {
 			slog.Warn("Failed to decrement rate limit counter", "error", err)
