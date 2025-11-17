@@ -15,6 +15,7 @@ import (
 	"github.com/Caritas-Team/reviewer/internal/logger"
 	"github.com/Caritas-Team/reviewer/internal/memcached"
 	"github.com/Caritas-Team/reviewer/internal/metrics"
+	"github.com/Caritas-Team/reviewer/internal/usecase/user"
 )
 
 func main() {
@@ -41,6 +42,9 @@ func main() {
 		slog.Error("cache initialization failed", "err", err)
 		return
 	}
+
+	rateLimiter := user.NewRateLimiter(cache, cfg)
+	rateLimiterMiddleware := handler.NewRateLimiterMiddleware(rateLimiter)
 
 	// ready + HTTP маршруты для тестов и прочего
 	var ready atomic.Bool
@@ -74,6 +78,8 @@ func main() {
 		AllowCredentials: true,
 		MaxAgeSeconds:    3600,
 	})(mux)
+
+	h = rateLimiterMiddleware.Handler(h)
 
 	// HTTP сервер
 	srv := &http.Server{
