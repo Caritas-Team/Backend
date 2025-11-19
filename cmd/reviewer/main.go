@@ -15,6 +15,7 @@ import (
 	"github.com/Caritas-Team/reviewer/internal/logger"
 	"github.com/Caritas-Team/reviewer/internal/memecached"
 	"github.com/Caritas-Team/reviewer/internal/metrics"
+	"github.com/Caritas-Team/reviewer/internal/usecase/file"
 )
 
 func main() {
@@ -47,6 +48,21 @@ func main() {
 	} else {
 		slog.Warn("Memcached is unavailable")
 	}
+
+	fileCleaner := file.NewFileCleaner(cache)
+
+	go func() {
+		ticker := time.NewTicker(1 * time.Minute)
+		defer ticker.Stop()
+
+		for range ticker.C {
+			if err := fileCleaner.DeleteDownloadedFiles(ctx); err != nil {
+				slog.Error("file cleaner delete error", "err", err)
+			} else {
+				slog.Info("file cleaner deleted successfully")
+			}
+		}
+	}()
 
 	// ready + HTTP маршруты для тестов и прочего
 	var ready atomic.Bool
