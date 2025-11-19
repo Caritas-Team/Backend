@@ -56,7 +56,7 @@ func main() {
 		defer ticker.Stop()
 
 		for range ticker.C {
-			if err := fileCleaner.DeleteDownloadedFiles(background); err != nil {
+			if err := fileCleaner.DeleteDownloadedFiles(ctx); err != nil {
 				slog.Error("file cleaner delete error", "err", err)
 			} else {
 				slog.Info("file cleaner deleted successfully")
