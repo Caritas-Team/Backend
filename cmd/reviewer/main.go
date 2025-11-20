@@ -15,6 +15,7 @@ import (
 	"github.com/Caritas-Team/reviewer/internal/logger"
 	"github.com/Caritas-Team/reviewer/internal/memcached"
 	"github.com/Caritas-Team/reviewer/internal/metrics"
+	"github.com/Caritas-Team/reviewer/internal/usecase/file"
 	"github.com/Caritas-Team/reviewer/internal/usecase/user"
 )
 
