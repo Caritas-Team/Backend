@@ -13,9 +13,10 @@ import (
 	"github.com/Caritas-Team/reviewer/internal/config"
 	"github.com/Caritas-Team/reviewer/internal/handler"
 	"github.com/Caritas-Team/reviewer/internal/logger"
-	"github.com/Caritas-Team/reviewer/internal/memecached"
+	"github.com/Caritas-Team/reviewer/internal/memcached"
 	"github.com/Caritas-Team/reviewer/internal/metrics"
 	"github.com/Caritas-Team/reviewer/internal/usecase/file"
+	"github.com/Caritas-Team/reviewer/internal/usecase/user"
 )
 
 func main() {
@@ -37,17 +38,14 @@ func main() {
 	defer stop()
 
 	// Кэш
-	cache, err := memecached.NewCache(rootCtx, cfg)
+	cache, err := memcached.NewCache(rootCtx, cfg)
 	if err != nil {
 		slog.Error("cache initialization failed", "err", err)
 		return
 	}
 
-	if cache.IsHealthy(rootCtx) {
-		slog.Info("Memcached is healthy")
-	} else {
-		slog.Warn("Memcached is unavailable")
-	}
+	rateLimiter := user.NewRateLimiter(cache, cfg)
+	rateLimiterMiddleware := handler.NewRateLimiterMiddleware(rateLimiter)
 
 	fileCleaner := file.NewFileCleaner(cache)
 
@@ -96,6 +94,8 @@ func main() {
 		AllowCredentials: true,
 		MaxAgeSeconds:    3600,
 	})(mux)
+
+	h = rateLimiterMiddleware.Handler(h)
 
 	// HTTP сервер
 	srv := &http.Server{

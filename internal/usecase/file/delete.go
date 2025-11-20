@@ -8,11 +8,11 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/Caritas-Team/reviewer/internal/memecached"
+	"github.com/Caritas-Team/reviewer/internal/memcached"
 )
 
 type Cleaner struct {
-	cache    *memecached.Cache
+	cache    *memcached.Cache
 	filesDir string
 }
 
@@ -22,7 +22,7 @@ type fileMetadata struct {
 	Filename string `json:"filename"`
 }
 
-func NewFileCleaner(cache *memecached.Cache) *Cleaner {
+func NewFileCleaner(cache *memcached.Cache) *Cleaner {
 	return &Cleaner{
 		cache:    cache,
 		filesDir: "./files",

@@ -1,12 +1,16 @@
-package memecached
+package memcached
 
 import (
 	"context"
+	"errors"
+	"strconv"
 	"time"
 
 	"github.com/Caritas-Team/reviewer/internal/config"
 	"github.com/bradfitz/gomemcache/memcache"
 )
+
+var ErrCacheMiss = memcache.ErrCacheMiss
 
 type Cache struct {
 	client *memcache.Client
@@ -18,8 +22,9 @@ type Cache struct {
 type CacheInterface interface {
 	Get(ctx context.Context, key string) ([]byte, error)
 	Set(ctx context.Context, key string, value []byte, ttl time.Duration) error
+	Increment(ctx context.Context, key string, value uint64) (uint64, error)
+	Decrement(ctx context.Context, key string, value uint64) (uint64, error)
 	Close() error
-	IsHealthy() bool
 }
 
 func NewCache(ctx context.Context, cfg config.Config) (*Cache, error) {
@@ -75,23 +80,65 @@ func (c *Cache) Set(ctx context.Context, key string, value []byte, ttl time.Dura
 	return err
 }
 
-func (c *Cache) Close() error {
-	return c.client.Close()
-}
-
-func (c *Cache) IsHealthy(ctx context.Context) bool {
+func (c *Cache) Increment(ctx context.Context, key string, value uint64) (newValue uint64, err error) {
 	if err := ctx.Err(); err != nil {
-		return false
+		return 0, err
 	}
 	if !c.enable || c.client == nil {
-		return false
+		return 0, memcache.ErrCacheMiss
 	}
+	prefix := c.prefix + ":" + key
 
-	if err := c.client.Ping(); err != nil {
-		return false
+	newValue, err = c.client.Increment(prefix, value)
+	if err != nil {
+		// Если ключа нет - создаем его с начальным значением
+		if errors.Is(err, memcache.ErrCacheMiss) {
+			initial := value
+			err = c.client.Set(&memcache.Item{
+				Key:        prefix,
+				Value:      []byte(strconv.FormatUint(initial, 10)),
+				Expiration: int32(c.ttl.Seconds()),
+			})
+			if err != nil {
+				return 0, err
+			}
+			return initial, nil
+		}
+		return 0, err
 	}
+	return newValue, nil
+}
 
-	return true
+func (c *Cache) Decrement(ctx context.Context, key string, value uint64) (newValue uint64, err error) {
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+	if !c.enable || c.client == nil {
+		return 0, memcache.ErrCacheMiss
+	}
+	prefix := c.prefix + ":" + key
+
+	newValue, err = c.client.Decrement(prefix, value)
+	if err != nil {
+		// Если ключа нет - создаем его с нулевым значением
+		if errors.Is(err, memcache.ErrCacheMiss) {
+			err = c.client.Set(&memcache.Item{
+				Key:        prefix,
+				Value:      []byte("0"),
+				Expiration: int32(c.ttl.Seconds()),
+			})
+			if err != nil {
+				return 0, err
+			}
+			return 0, nil
+		}
+		return 0, err
+	}
+	return newValue, nil
+}
+
+func (c *Cache) Close() error {
+	return c.client.Close()
 }
 
 func (c *Cache) Delete(ctx context.Context, key string) error {
