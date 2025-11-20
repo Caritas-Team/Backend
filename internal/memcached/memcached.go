@@ -1,4 +1,4 @@
-package memcached
+package memecached
 
 import (
 	"context"
@@ -25,6 +25,7 @@ type CacheInterface interface {
 	Increment(ctx context.Context, key string, value uint64) (uint64, error)
 	Decrement(ctx context.Context, key string, value uint64) (uint64, error)
 	Close() error
+	IsHealthy() bool
 }
 
 func NewCache(ctx context.Context, cfg config.Config) (*Cache, error) {
@@ -139,4 +140,16 @@ func (c *Cache) Decrement(ctx context.Context, key string, value uint64) (newVal
 
 func (c *Cache) Close() error {
 	return c.client.Close()
+}
+
+func (c *Cache) Delete(ctx context.Context, key string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if !c.enable || c.client == nil {
+		return nil
+	}
+
+	prefix := c.prefix + ":" + key
+	return c.client.Delete(prefix)
 }

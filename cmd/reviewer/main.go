@@ -46,6 +46,21 @@ func main() {
 	rateLimiter := user.NewRateLimiter(cache, cfg)
 	rateLimiterMiddleware := handler.NewRateLimiterMiddleware(rateLimiter)
 
+	fileCleaner := file.NewFileCleaner(cache)
+
+	go func() {
+		ticker := time.NewTicker(1 * time.Minute)
+		defer ticker.Stop()
+
+		for range ticker.C {
+			if err := fileCleaner.DeleteDownloadedFiles(ctx); err != nil {
+				slog.Error("file cleaner delete error", "err", err)
+			} else {
+				slog.Info("file cleaner deleted successfully")
+			}
+		}
+	}()
+
 	// ready + HTTP маршруты для тестов и прочего
 	var ready atomic.Bool
 	ready.Store(true)
