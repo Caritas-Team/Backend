@@ -1,9 +1,9 @@
 package logger
 
 import (
+	"context"
 	"log/slog"
 	"os"
-
 	"sync"
 
 	"github.com/Caritas-Team/reviewer/internal/config"
@@ -13,6 +13,14 @@ type Logger struct {
 	mu     sync.Mutex
 	logger *slog.Logger
 }
+
+type contextKey string
+
+const (
+	RequestIDKey contextKey = "request_id"
+	TraceIDKey   contextKey = "trace_id"
+	SpanIDKey    contextKey = "span_id"
+)
 
 // Создание логгера
 func NewLogger(cfg config.Config) *Logger {
@@ -24,7 +32,7 @@ func NewLogger(cfg config.Config) *Logger {
 	if cfg.Logging.Level != "" {
 		localLevel = cfg.Logging.Level
 	} else {
-		slog.Warn("Отсутствует уровень логирования, используетя debug")
+		slog.Warn("Отсутствует уровень логирования, используется debug")
 		localLevel = "debug"
 	}
 
@@ -81,12 +89,66 @@ func NewLogger(cfg config.Config) *Logger {
 	}
 }
 
-// Глобальная переменная логгера
-var GlobalLogger *Logger
+// WithFields создает новый логгер с дополнительными полями
+func (l *Logger) WithFields(fields map[string]any) *Logger {
+	l.mu.Lock()
+	defer l.mu.Unlock()
 
-// Инициализация глобального логгера
-func InitGlobalLogger(cfg config.Config) {
-	GlobalLogger = NewLogger(cfg)
+	args := make([]any, 0, len(fields)*2)
+	for key, value := range fields {
+		args = append(args, key, value)
+	}
+
+	return &Logger{
+		logger: l.logger.With(args...),
+	}
+}
+
+// WithContext создает логгер с полями из контекста
+func (l *Logger) WithContext(ctx context.Context) *Logger {
+	fields := make(map[string]any)
+
+	if requestID, ok := ctx.Value(RequestIDKey).(string); ok && requestID != "" {
+		fields["request_id"] = requestID
+	}
+
+	if traceID, ok := ctx.Value(TraceIDKey).(string); ok && traceID != "" {
+		fields["trace_id"] = traceID
+	}
+
+	if spanID, ok := ctx.Value(SpanIDKey).(string); ok && spanID != "" {
+		fields["span_id"] = spanID
+	}
+
+	return l.WithFields(fields)
+}
+
+func (l *Logger) ErrorWithTrace(msg string, err error, args ...any) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	allArgs := append([]any{"error", err}, args...)
+
+	if stackTracer, ok := err.(interface {
+		StackTrace() []string
+	}); ok {
+		allArgs = append(allArgs, "stack_trace", stackTracer.StackTrace())
+	}
+
+	l.logger.Error(msg, allArgs...)
+}
+
+// Методы для работы с контекстом
+func WithRequestID(ctx context.Context, requestID string) context.Context {
+	return context.WithValue(ctx, RequestIDKey, requestID)
+}
+
+func WithTraceID(ctx context.Context, traceID string) context.Context {
+	return context.WithValue(ctx, TraceIDKey, traceID)
+}
+
+func WithSpanID(ctx context.Context, spanID string) context.Context {
+	return context.WithValue(ctx, SpanIDKey, spanID)
 }
 
 // Методы логирования с мьютексом
