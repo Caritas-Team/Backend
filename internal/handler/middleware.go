@@ -4,8 +4,11 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"time"
 
+	"github.com/Caritas-Team/reviewer/internal/logger"
 	"github.com/Caritas-Team/reviewer/internal/usecase/user"
+	"github.com/google/uuid"
 	"github.com/rs/cors"
 )
 
@@ -77,4 +80,54 @@ func (m *RateLimiterMiddleware) Handler(next http.Handler) http.Handler {
 
 		next.ServeHTTP(w, r)
 	})
+}
+
+// LoggingMiddleware добавляет идентификаторы запросов и логирование
+func LoggingMiddleware(log *logger.Logger, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+
+		requestID := uuid.New().String()
+		traceID := r.Header.Get("X-Trace-ID")
+		if traceID == "" {
+			traceID = uuid.New().String()
+		}
+
+		ctx := r.Context()
+		ctx = logger.WithRequestID(ctx, requestID)
+		ctx = logger.WithTraceID(ctx, traceID)
+
+		wrappedWriter := &responseWriter{
+			ResponseWriter: w,
+			statusCode:     http.StatusOK,
+		}
+
+		log.WithContext(ctx).Info("request started",
+			"method", r.Method,
+			"path", r.URL.Path,
+			"user_agent", r.UserAgent(),
+			"remote_addr", r.RemoteAddr,
+		)
+
+		r = r.WithContext(ctx)
+		next.ServeHTTP(wrappedWriter, r)
+
+		duration := time.Since(start)
+		log.WithContext(ctx).Info("request completed",
+			"method", r.Method,
+			"path", r.URL.Path,
+			"status", wrappedWriter.statusCode,
+			"duration_ms", duration.Milliseconds(),
+		)
+	})
+}
+
+type responseWriter struct {
+	http.ResponseWriter
+	statusCode int
+}
+
+func (rw *responseWriter) WriteHeader(code int) {
+	rw.statusCode = code
+	rw.ResponseWriter.WriteHeader(code)
 }

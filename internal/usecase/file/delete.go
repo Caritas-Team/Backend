@@ -4,16 +4,17 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"os"
 	"path/filepath"
 
+	"github.com/Caritas-Team/reviewer/internal/logger"
 	"github.com/Caritas-Team/reviewer/internal/memcached"
 )
 
 type Cleaner struct {
 	cache    *memcached.Cache
 	filesDir string
+	log      *logger.Logger
 }
 
 type fileMetadata struct {
@@ -22,10 +23,11 @@ type fileMetadata struct {
 	Filename string `json:"filename"`
 }
 
-func NewFileCleaner(cache *memcached.Cache) *Cleaner {
+func NewFileCleaner(log *logger.Logger, cache *memcached.Cache) *Cleaner {
 	return &Cleaner{
 		cache:    cache,
 		filesDir: "./files",
+		log:      log,
 	}
 }
 
@@ -35,7 +37,7 @@ func (fc *Cleaner) DeleteDownloadedFiles(ctx context.Context) error {
 		return fmt.Errorf("error reading directory /files: %w", err)
 	}
 
-	slog.Info("Found files in directory", "count", len(files), "files", files)
+	fc.log.Info("Found files in directory", "count", len(files), "files", files)
 
 	for _, file := range files {
 		if file.IsDir() {
@@ -47,23 +49,23 @@ func (fc *Cleaner) DeleteDownloadedFiles(ctx context.Context) error {
 
 		status, err := fc.getFileStatus(ctx, uuid)
 		if err != nil {
-			slog.Warn("Cannot get file status", "uuid", uuid, "err", err)
+			fc.log.Warn("Cannot get file status", "uuid", uuid, "err", err)
 			continue
 		}
 
 		if status == "DOWNLOADED" {
 			filePath := filepath.Join(fc.filesDir, filename)
 			if err = os.Remove(filePath); err != nil {
-				slog.Error("Cannot remove downloaded file", "uuid", uuid, "path", filePath, "err", err)
+				fc.log.Error("Cannot remove downloaded file", "uuid", uuid, "path", filePath, "err", err)
 				continue
 			}
 
 			if err = fc.cache.Delete(ctx, uuid); err != nil {
-				slog.Error("Error removing data", "uuid", uuid, "error", err)
+				fc.log.Error("Error removing data", "uuid", uuid, "error", err)
 				continue
 			}
 
-			slog.Info("Removed file", "uuid", uuid)
+			fc.log.Info("Removed file", "uuid", uuid)
 		}
 	}
 

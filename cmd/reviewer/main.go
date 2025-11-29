@@ -38,7 +38,7 @@ func main() {
 	ctx := context.Background()
 
 	// Глобальный логер
-	logger.InitGlobalLogger(cfg)
+	log := logger.NewLogger(cfg)
 
 	// Jaeger
 	shutdownTracer, err := initTracer("reviewer", cfg.Jaeger.Endpoint)
@@ -61,14 +61,14 @@ func main() {
 	// Кэш
 	cache, err := memcached.NewCache(rootCtx, cfg)
 	if err != nil {
-		slog.Error("cache initialization failed", "err", err)
+		log.Error("cache initialization failed", "err", err)
 		return
 	}
 
 	rateLimiter := user.NewRateLimiter(cache, cfg)
 	rateLimiterMiddleware := handler.NewRateLimiterMiddleware(rateLimiter)
 
-	fileCleaner := file.NewFileCleaner(cache)
+	fileCleaner := file.NewFileCleaner(log, cache)
 
 	go func() {
 		ticker := time.NewTicker(1 * time.Minute)
@@ -76,9 +76,9 @@ func main() {
 
 		for range ticker.C {
 			if err := fileCleaner.DeleteDownloadedFiles(ctx); err != nil {
-				slog.Error("file cleaner delete error", "err", err)
+				log.Error("file cleaner delete error", "err", err)
 			} else {
-				slog.Info("file cleaner deleted successfully")
+				log.Info("file cleaner deleted successfully")
 			}
 		}
 	}()
@@ -117,6 +117,7 @@ func main() {
 	})(mux)
 
 	h = rateLimiterMiddleware.Handler(h)
+	h = handler.LoggingMiddleware(log, h)
 
 	h = otelhttp.NewHandler(h, "http-server")
 
@@ -132,7 +133,7 @@ func main() {
 	// Запуск сервера
 	errCh := make(chan error, 1)
 	go func() {
-		slog.Info("http server listening", "addr", srv.Addr, "pid", os.Getpid())
+		log.Info("http server listening", "addr", srv.Addr, "pid", os.Getpid())
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			errCh <- err
 			return
@@ -143,10 +144,10 @@ func main() {
 	// Сигнал или ошибка сервера
 	select {
 	case <-rootCtx.Done():
-		slog.Info("shutdown signal received")
+		log.Info("shutdown signal received")
 	case err := <-errCh:
 		if err != nil {
-			slog.Error("server failed", "err", err)
+			log.Error("server failed", "err", err)
 			_ = cache.Close()
 			return
 		}
@@ -160,18 +161,18 @@ func main() {
 	defer cancel()
 
 	if err := srv.Shutdown(shCtx); err != nil {
-		slog.Error("http shutdown error", "err", err)
+		log.Error("http shutdown error", "err", err)
 	} else {
-		slog.Info("http server shutdown complete")
+		log.Info("http server shutdown complete")
 	}
 
 	if err := cache.Close(); err != nil {
-		slog.Error("cache close error", "err", err)
+		log.Error("cache close error", "err", err)
 	} else {
-		slog.Info("cache closed")
+		log.Info("cache closed")
 	}
 
-	slog.Info("graceful shutdown finished")
+	log.Info("graceful shutdown finished")
 
 }
 
