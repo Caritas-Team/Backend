@@ -17,6 +17,13 @@ import (
 	"github.com/Caritas-Team/reviewer/internal/metrics"
 	"github.com/Caritas-Team/reviewer/internal/usecase/file"
 	"github.com/Caritas-Team/reviewer/internal/usecase/user"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/exporters/jaeger"
+	"go.opentelemetry.io/otel/propagation"
+	"go.opentelemetry.io/otel/sdk/resource"
+	tracesdk "go.opentelemetry.io/otel/sdk/trace"
+	semconv "go.opentelemetry.io/otel/semconv/v1.21.0"
 )
 
 func main() {
@@ -32,6 +39,20 @@ func main() {
 
 	// Глобальный логер
 	logger.InitGlobalLogger(cfg)
+
+	// Jaeger
+	shutdownTracer, err := initTracer("reviewer", cfg.Jaeger.Endpoint)
+	if err != nil {
+		slog.Error("tracer init error", "err", err)
+		return
+	}
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := shutdownTracer(ctx); err != nil {
+			slog.Error("tracer shutdown error", "err", err)
+		}
+	}()
 
 	// Контекст, отменяемый по SIGINT/SIGTERM
 	rootCtx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
@@ -97,6 +118,8 @@ func main() {
 
 	h = rateLimiterMiddleware.Handler(h)
 
+	h = otelhttp.NewHandler(h, "http-server")
+
 	// HTTP сервер
 	srv := &http.Server{
 		Addr:         cfg.Server.Addr(),
@@ -150,4 +173,39 @@ func main() {
 
 	slog.Info("graceful shutdown finished")
 
+}
+
+func initTracer(serviceName string, endpoint string) (func(context.Context) error, error) {
+	if endpoint == "" {
+		endpoint = "http://jaeger:14268/api/traces"
+	}
+
+	exp, err := jaeger.New(
+		jaeger.WithCollectorEndpoint(
+			jaeger.WithEndpoint(endpoint),
+		),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	tp := tracesdk.NewTracerProvider(
+		tracesdk.WithBatcher(exp),
+		tracesdk.WithResource(
+			resource.NewWithAttributes(
+				semconv.SchemaURL,
+				semconv.ServiceName(serviceName),
+			),
+		),
+	)
+
+	otel.SetTracerProvider(tp)
+	otel.SetTextMapPropagator(
+		propagation.NewCompositeTextMapPropagator(
+			propagation.TraceContext{},
+			propagation.Baggage{},
+		),
+	)
+
+	return tp.Shutdown, nil
 }

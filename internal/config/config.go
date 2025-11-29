@@ -57,6 +57,10 @@ type Logging struct {
 	Format string `mapstructure:"format"`
 }
 
+type Jaeger struct {
+	Endpoint string `yaml:"endpoint"`
+}
+
 type Config struct {
 	Server      Server      `mapstructure:"server"`
 	CORS        CORS        `mapstructure:"cors"`
@@ -65,6 +69,7 @@ type Config struct {
 	Files       Files       `mapstructure:"files"`
 	Metrics     Metrics     `mapstructure:"metrics"`
 	Logging     Logging     `mapstructure:"logging"`
+	Jaeger      Jaeger      `yaml:"jaeger"`
 }
 
 func Load() (Config, error) {
