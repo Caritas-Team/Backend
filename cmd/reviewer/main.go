@@ -19,9 +19,11 @@ import (
 	"github.com/Caritas-Team/reviewer/internal/usecase/user"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/exporters/jaeger"
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace"
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/sdk/resource"
+
 	tracesdk "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.21.0"
 )
@@ -41,15 +43,15 @@ func main() {
 	log := logger.NewLogger(cfg)
 
 	// Jaeger
-	shutdownTracer, err := initTracer("reviewer", cfg.Jaeger.Endpoint)
+	shutdownTracer, err := initTracer(ctx, "reviewer", cfg.Jaeger.Endpoint)
 	if err != nil {
 		slog.Error("tracer init error", "err", err)
 		return
 	}
 	defer func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		shCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		if err := shutdownTracer(ctx); err != nil {
+		if err := shutdownTracer(shCtx); err != nil {
 			slog.Error("tracer shutdown error", "err", err)
 		}
 	}()
@@ -176,16 +178,18 @@ func main() {
 
 }
 
-func initTracer(serviceName string, endpoint string) (func(context.Context) error, error) {
+func initTracer(ctx context.Context, serviceName, endpoint string) (func(context.Context) error, error) {
 	if endpoint == "" {
-		endpoint = "http://jaeger:14268/api/traces"
+		endpoint = "localhost:4318"
 	}
 
-	exp, err := jaeger.New(
-		jaeger.WithCollectorEndpoint(
-			jaeger.WithEndpoint(endpoint),
-		),
+	client := otlptracehttp.NewClient(
+		otlptracehttp.WithEndpoint(endpoint),
+		otlptracehttp.WithInsecure(),
 	)
+
+	// Экспортёр поверх клиента
+	exp, err := otlptrace.New(ctx, client)
 	if err != nil {
 		return nil, err
 	}
