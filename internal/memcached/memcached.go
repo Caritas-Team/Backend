@@ -152,3 +152,15 @@ func (c *Cache) Delete(ctx context.Context, key string) error {
 	prefix := c.prefix + ":" + key
 	return c.client.Delete(prefix)
 }
+
+func (c *Cache) Ping() error {
+	if c.client == nil {
+		return errors.New("memcached client is not initialized")
+	}
+	return c.client.Ping()
+}
+
+// Добавляем публичный метод IsEnabled
+func (c *Cache) IsEnabled() bool {
+	return c.enable
+}
