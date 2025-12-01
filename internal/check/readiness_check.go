@@ -66,6 +66,7 @@ func (rc *ReadinessChecker) IsReady() bool {
 
 // Заглушка для метода upload
 func uploadStub() bool {
+
 	return true
 }
 

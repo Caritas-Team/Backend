@@ -2,6 +2,8 @@ package handler
 
 import (
 	"context"
+	"log"
+
 	"net"
 	"net/http"
 	"strings"
@@ -151,7 +153,12 @@ func CheckCORS(config CORSConfig) bool {
 	if err != nil {
 		return false
 	}
-	defer resp.Body.Close()
+
+	// Закрываем тело ответа с проверкой ошибки
+	if err := resp.Body.Close(); err != nil {
+		log.Println("Error closing response body:", err)
+		return false
+	}
 
 	// Проверяем, содержит ли ответ правильный заголовок Access-Control-Allow-Origin
 	allowOrigin := resp.Header.Get("Access-Control-Allow-Origin")

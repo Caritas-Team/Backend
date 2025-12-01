@@ -188,8 +188,19 @@ func (l *Logger) TestLog() error {
 	if err != nil {
 		return fmt.Errorf("ошибка создания временного файла: %v", err)
 	}
-	defer tmpfile.Close()
-	defer os.Remove(tmpfile.Name()) // Удаляем временный файл после проверки
+	// Функция для очистки ресурсов
+	cleanup := func() {
+		// Закрываем временный файл с проверкой ошибки
+		if err := tmpfile.Close(); err != nil {
+			fmt.Println("Ошибка закрытия временного файла:", err)
+		}
+
+		// Удаляем временный файл с проверкой ошибки
+		if err := os.Remove(tmpfile.Name()); err != nil {
+			fmt.Println("Ошибка удаления временного файла:", err)
+		}
+	}
+	defer cleanup()
 
 	// Сохраняем старый вывод
 	oldStdout := os.Stdout
