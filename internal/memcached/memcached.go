@@ -153,14 +153,20 @@ func (c *Cache) Delete(ctx context.Context, key string) error {
 	return c.client.Delete(prefix)
 }
 
+var ErrCacheDisabled = errors.New("memcached caching is disabled")
+
+// Ping проверяет доступность memcached
 func (c *Cache) Ping() error {
 	if c.client == nil {
-		return errors.New("memcached client is not initialized")
+		return ErrCacheDisabled
 	}
 	return c.client.Ping()
 }
 
-// Добавляем публичный метод IsEnabled
-func (c *Cache) IsEnabled() bool {
-	return c.enable
+// IsEnabled проверяет, активирован ли кэш
+func (c *Cache) IsEnabled() error {
+	if !c.enable {
+		return ErrCacheDisabled
+	}
+	return nil
 }

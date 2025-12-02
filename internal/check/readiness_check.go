@@ -1,10 +1,10 @@
 package check
 
 import (
+	"log"
 	"net/http"
 
 	"github.com/Caritas-Team/reviewer/internal/handler"
-	"github.com/Caritas-Team/reviewer/internal/logger"
 	"github.com/Caritas-Team/reviewer/internal/memcached"
 	"github.com/Caritas-Team/reviewer/internal/metrics"
 )
@@ -13,42 +13,41 @@ import (
 type ReadinessChecker struct {
 	cache       *memcached.Cache
 	rateLimiter *handler.RateLimiterMiddleware
-	logger      *logger.Logger
 }
 
 // Конструктор ReadinessChecker
-func NewReadinessChecker(cache *memcached.Cache, rateLimiter *handler.RateLimiterMiddleware, logger *logger.Logger) *ReadinessChecker {
+func NewReadinessChecker(cache *memcached.Cache, rateLimiter *handler.RateLimiterMiddleware) *ReadinessChecker {
 	return &ReadinessChecker{
 		cache:       cache,
 		rateLimiter: rateLimiter,
-		logger:      logger,
 	}
 }
 
 // Проверка готовности
 func (rc *ReadinessChecker) IsReady() bool {
+
 	// Проверка memcached
-	if !rc.cache.IsEnabled() || rc.cache.Ping() != nil {
+	if err := rc.cache.IsEnabled(); err != nil {
+		log.Error("Ошибка проверки активности кэша:", err)
+		return false
+	}
+
+	if err := rc.cache.Ping(); err != nil {
 		return false
 	}
 
 	// Проверка CORS (конфигурация передаётся в функцию)
-	if !handler.CheckCORS(handler.CORSConfig{}) {
+	if err := handler.CheckCORS(handler.CORSConfig{}); err != nil {
 		return false
 	}
 
 	// Проверка rate limiting
-	if !rc.rateLimiter.IsOperational() {
+	if err := rc.rateLimiter.IsOperational(); err != nil {
 		return false
 	}
 
 	// Проверка метрик
-	if !metrics.CheckMetrics() {
-		return false
-	}
-
-	// Проверка логгера
-	if err := rc.logger.TestLog(); err != nil {
+	if err := metrics.CheckMetrics(); err != nil {
 		return false
 	}
 

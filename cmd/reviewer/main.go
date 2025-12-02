@@ -63,7 +63,7 @@ func main() {
 	}()
 
 	// Создаём экземпляр ReadinessChecker
-	checker := check.NewReadinessChecker(cache, rateLimiterMiddleware, log)
+	checker := check.NewReadinessChecker(cache, rateLimiterMiddleware)
 
 	mux := http.NewServeMux()
 

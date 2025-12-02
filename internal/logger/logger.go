@@ -2,10 +2,8 @@ package logger
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"os"
-	"strings"
 	"sync"
 
 	"github.com/Caritas-Team/reviewer/internal/config"
@@ -176,61 +174,4 @@ func (l *Logger) Error(msg string, args ...any) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.logger.Error(msg, args...)
-}
-
-// TestLog проверяет работоспособность логгера
-func (l *Logger) TestLog() error {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-
-	// Создаём временный файл для перехвата логов
-	tmpfile, err := os.CreateTemp("", "log-test-*")
-	if err != nil {
-		return fmt.Errorf("ошибка создания временного файла: %v", err)
-	}
-	// Функция для очистки ресурсов
-	cleanup := func() {
-		// Закрываем временный файл с проверкой ошибки
-		if err := tmpfile.Close(); err != nil {
-			fmt.Println("Ошибка закрытия временного файла:", err)
-		}
-
-		// Удаляем временный файл с проверкой ошибки
-		if err := os.Remove(tmpfile.Name()); err != nil {
-			fmt.Println("Ошибка удаления временного файла:", err)
-		}
-	}
-	defer cleanup()
-
-	// Сохраняем старый вывод
-	oldStdout := os.Stdout
-	os.Stdout = tmpfile
-
-	// Записываем тестовое сообщение с контекстом
-	requestID := "test_request_id"
-	traceID := "test_trace_id"
-	ctx := context.WithValue(context.Background(), RequestIDKey, requestID)
-	ctx = context.WithValue(ctx, TraceIDKey, traceID)
-
-	msg := "This is a test log entry."
-	l.WithContext(ctx).Info(msg)
-
-	// Восстанавливаем вывод
-	os.Stdout = oldStdout
-
-	// Читаем содержимое временного файла
-	content, err := os.ReadFile(tmpfile.Name())
-	if err != nil {
-		return fmt.Errorf("ошибка чтения временного файла: %v", err)
-	}
-
-	// Проверяем, было ли сообщение записано
-	output := string(content)
-	if !strings.Contains(output, msg) ||
-		!strings.Contains(output, requestID) ||
-		!strings.Contains(output, traceID) {
-		return fmt.Errorf("запись лока некорректна")
-	}
-
-	return nil
 }

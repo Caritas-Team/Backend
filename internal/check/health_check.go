@@ -20,7 +20,13 @@ func HealthCheckHandler(cache *memcached.Cache, maxResponseTime time.Duration) h
 			}
 
 			// Проверка доступности memcached
-			if !cache.IsEnabled() || cache.Ping() != nil {
+			if err := cache.IsEnabled(); err != nil {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				_, _ = w.Write([]byte("Memcached неактивен"))
+				return
+			}
+
+			if err := cache.Ping(); err != nil {
 				w.WriteHeader(http.StatusServiceUnavailable)
 				_, _ = w.Write([]byte("Memcached недоступен"))
 				return

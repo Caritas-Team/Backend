@@ -2,7 +2,6 @@ package handler
 
 import (
 	"context"
-	"log"
 
 	"net"
 	"net/http"
@@ -138,37 +137,39 @@ func (rw *responseWriter) WriteHeader(code int) {
 // handler.go
 
 // CheckCORS проверяет, что CORS настроен корректно
-func CheckCORS(config CORSConfig) bool {
+func CheckCORS(config CORSConfig) error {
 	origin := "https://example.com" // Тестовый источник
 
 	// Формируем OPTIONS-запрос с нужным заголовком Origin
 	req, err := http.NewRequest(http.MethodOptions, "http://localhost:8080/", nil)
 	if err != nil {
-		return false
+		return err
 	}
 	req.Header.Set("Origin", origin)
 
 	// Выполняем запрос
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return false
+		return err
 	}
 
 	// Закрываем тело ответа с проверкой ошибки
 	if err := resp.Body.Close(); err != nil {
-		log.Println("Error closing response body:", err)
-		return false
+		return err
 	}
 
 	// Проверяем, содержит ли ответ правильный заголовок Access-Control-Allow-Origin
 	allowOrigin := resp.Header.Get("Access-Control-Allow-Origin")
-	return allowOrigin == "*" || allowOrigin == origin
+	if allowOrigin == "*" || allowOrigin == origin {
+		return http.ErrNoCookie
+	}
+	return nil
 }
 
 // Метод проверки работоспособности rate limiting
-func (m *RateLimiterMiddleware) IsOperational() bool {
+func (m *RateLimiterMiddleware) IsOperational() error {
 	// Проверяем, может ли rate limiter разрешить хотя бы один запрос
 	ip := "test_ip"
 	err := m.limiter.AllowRequest(context.Background(), ip)
-	return err == nil
+	return err
 }
