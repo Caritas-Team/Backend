@@ -39,7 +39,7 @@ func (rc *ReadinessChecker) IsReady() bool {
 		return false
 	}
 
-	// Проверка CORS (конфигурация передаётся в функцию)
+	// Проверка CORS
 	if err := handler.CheckCORS(handler.CORSConfig{}); err != nil {
 		rc.log.Error("Ошибка проверки CORS:", err)
 		return false

@@ -134,8 +134,7 @@ func (rw *responseWriter) WriteHeader(code int) {
 	rw.ResponseWriter.WriteHeader(code)
 }
 
-// handler.go
-
+// Проверки
 // CheckCORS проверяет, что CORS настроен корректно
 func CheckCORS(config CORSConfig) error {
 	origin := "https://example.com" // Тестовый источник

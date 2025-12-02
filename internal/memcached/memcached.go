@@ -155,6 +155,7 @@ func (c *Cache) Delete(ctx context.Context, key string) error {
 
 var ErrCacheDisabled = errors.New("memcached caching is disabled")
 
+// Проверки
 // Ping проверяет доступность memcached
 func (c *Cache) Ping() error {
 	if c.client == nil {
