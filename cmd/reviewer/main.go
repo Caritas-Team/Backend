@@ -63,15 +63,15 @@ func main() {
 	}()
 
 	// Создаём экземпляр ReadinessChecker
-	checker := check.NewReadinessChecker(cache, rateLimiterMiddleware)
+	checker := check.NewReadinessChecker(cache, rateLimiterMiddleware, log)
 
 	mux := http.NewServeMux()
 
 	// Эндпоинт для health check
-	mux.HandleFunc("/healthz", check.HealthCheckHandler(cache, 29*time.Second)) // Тайминг можно настроить
+	mux.HandleFunc("/health", check.HealthCheckHandler(cache, log, 29*time.Second)) // Тайминг можно настроить
 
 	// Эндпоинт для readiness check
-	mux.HandleFunc("/readyz", check.ReadinessCheckHandler(checker))
+	mux.HandleFunc("/ready", check.ReadinessCheckHandler(checker))
 
 	// Метрики
 	metrics.InitMetricsOn(mux)

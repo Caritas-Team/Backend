@@ -1,28 +1,27 @@
 package check
 
 import (
-	"log"
 	"net/http"
 
 	"github.com/Caritas-Team/reviewer/internal/handler"
+	"github.com/Caritas-Team/reviewer/internal/logger"
 	"github.com/Caritas-Team/reviewer/internal/memcached"
 	"github.com/Caritas-Team/reviewer/internal/metrics"
-	"github.com/Caritas-Team/reviewer/internal/logger"
 )
-
-log := logger.NewLogger(cfg)
 
 // ReadinessChecker проверяет состояние приложения
 type ReadinessChecker struct {
 	cache       *memcached.Cache
 	rateLimiter *handler.RateLimiterMiddleware
+	log         *logger.Logger
 }
 
 // Конструктор ReadinessChecker
-func NewReadinessChecker(cache *memcached.Cache, rateLimiter *handler.RateLimiterMiddleware) *ReadinessChecker {
+func NewReadinessChecker(cache *memcached.Cache, rateLimiter *handler.RateLimiterMiddleware, log *logger.Logger) *ReadinessChecker {
 	return &ReadinessChecker{
 		cache:       cache,
 		rateLimiter: rateLimiter,
+		log:         log,
 	}
 }
 
@@ -31,35 +30,41 @@ func (rc *ReadinessChecker) IsReady() bool {
 
 	// Проверка memcached
 	if err := rc.cache.IsEnabled(); err != nil {
-		log.Error("Ошибка проверки активности кэша:", err)
+		rc.log.Error("Ошибка проверки активности кэша:", err)
 		return false
 	}
 
 	if err := rc.cache.Ping(); err != nil {
+		rc.log.Error("Ошибка проверки доступности кэша:", err)
 		return false
 	}
 
 	// Проверка CORS (конфигурация передаётся в функцию)
 	if err := handler.CheckCORS(handler.CORSConfig{}); err != nil {
+		rc.log.Error("Ошибка проверки CORS:", err)
 		return false
 	}
 
 	// Проверка rate limiting
 	if err := rc.rateLimiter.IsOperational(); err != nil {
+		rc.log.Error("Ошибка проверки rate limiting:", err)
 		return false
 	}
 
 	// Проверка метрик
 	if err := metrics.CheckMetrics(); err != nil {
+		rc.log.Error("Ошибка проверки метрик:", err)
 		return false
 	}
 
 	// Заглушки для будущих методов
 	if !uploadStub() {
+		rc.log.Error("Ошибка проверки uploadStub")
 		return false
 	}
 
 	if !processingStub() {
+		rc.log.Error("Ошибка проверки processingStub")
 		return false
 	}
 
@@ -82,10 +87,9 @@ func processingStub() bool {
 func ReadinessCheckHandler(checker *ReadinessChecker) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if checker.IsReady() {
-			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write([]byte("READY"))
+			JSONResponse(w, http.StatusOK, "READY")
 		} else {
-			http.Error(w, "NOT READY", http.StatusServiceUnavailable)
+			JSONResponse(w, http.StatusServiceUnavailable, "NOT READY")
 		}
 	}
 }
