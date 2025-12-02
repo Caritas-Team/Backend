@@ -7,7 +7,10 @@ import (
 	"github.com/Caritas-Team/reviewer/internal/handler"
 	"github.com/Caritas-Team/reviewer/internal/memcached"
 	"github.com/Caritas-Team/reviewer/internal/metrics"
+	"github.com/Caritas-Team/reviewer/internal/logger"
 )
+
+log := logger.NewLogger(cfg)
 
 // ReadinessChecker проверяет состояние приложения
 type ReadinessChecker struct {
