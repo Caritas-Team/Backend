@@ -334,3 +334,23 @@ func InitMetricsOn(mux *http.ServeMux) {
 		mux.Handle("/metrics", promhttp.Handler())
 	})
 }
+
+// CheckMetrics проверяет работоспособность сбора метрик
+func CheckMetrics() error {
+	// Регистрируем фиктивную метрика и проверяем, есть ли ошибки
+	fakeMetric := prometheus.NewCounter(prometheus.CounterOpts{
+		Namespace: "test_namespace",
+		Name:      "fake_metric",
+		Help:      "Fake metric for testing purposes",
+	})
+
+	err := prometheus.Register(fakeMetric)
+	if err != nil {
+		return err
+	}
+
+	// Удаляем фиктивную метрику
+	prometheus.Unregister(fakeMetric)
+
+	return nil
+}

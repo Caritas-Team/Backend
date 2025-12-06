@@ -6,10 +6,10 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"sync/atomic"
 	"syscall"
 	"time"
 
+	"github.com/Caritas-Team/reviewer/internal/check"
 	"github.com/Caritas-Team/reviewer/internal/config"
 	"github.com/Caritas-Team/reviewer/internal/handler"
 	"github.com/Caritas-Team/reviewer/internal/logger"
@@ -62,26 +62,16 @@ func main() {
 		}
 	}()
 
-	// ready + HTTP маршруты для тестов и прочего
-	var ready atomic.Bool
-	ready.Store(true)
+	// Экземпляр ReadinessChecker
+	checker := check.NewReadinessChecker(cache, rateLimiterMiddleware, log)
 
 	mux := http.NewServeMux()
 
-	// Для теста CORS. МОЖНО УДАЛЯТЬ
-	mux.HandleFunc("/ping", func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte("pong"))
-	})
+	// Эндпоинт для health check
+	mux.HandleFunc("/health", check.HealthCheckHandler(cache, log, 29*time.Second)) // Тайминг можно настроить
 
-	// Для проверки, готов ли сервер принимать новый трафик. МОЖНО УДАЛЯТЬ
-	mux.HandleFunc("/readyz", func(w http.ResponseWriter, r *http.Request) {
-		if ready.Load() {
-			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write([]byte("ok"))
-			return
-		}
-		http.Error(w, "shutting down", http.StatusServiceUnavailable)
-	})
+	// Эндпоинт для readiness check
+	mux.HandleFunc("/ready", check.ReadinessCheckHandler(checker))
 
 	// Метрики
 	metrics.InitMetricsOn(mux)
@@ -131,7 +121,6 @@ func main() {
 	}
 
 	// Graceful shutdown
-	ready.Store(false)
 
 	graceTime := 30 * time.Second
 	shCtx, cancel := context.WithTimeout(ctx, graceTime)

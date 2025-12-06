@@ -152,3 +152,22 @@ func (c *Cache) Delete(ctx context.Context, key string) error {
 	prefix := c.prefix + ":" + key
 	return c.client.Delete(prefix)
 }
+
+var ErrCacheDisabled = errors.New("memcached caching is disabled")
+
+// Проверки
+// Ping проверяет доступность memcached
+func (c *Cache) Ping() error {
+	if c.client == nil {
+		return ErrCacheDisabled
+	}
+	return c.client.Ping()
+}
+
+// IsEnabled проверяет, активирован ли кэш
+func (c *Cache) IsEnabled() error {
+	if !c.enable {
+		return ErrCacheDisabled
+	}
+	return nil
+}
