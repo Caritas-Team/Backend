@@ -49,15 +49,6 @@ func HealthCheckHandler(cache *memcached.Cache, log *logger.Logger, maxResponseT
 				return
 			}
 
-			// Самотест
-			// Выполняем простейший запрос к самому себе
-			resp, err := http.Get(r.URL.Scheme + "://" + r.Host + "/ping")
-			if err != nil || resp.StatusCode != http.StatusOK {
-				log.Error("Ошибка самотеста:", err)
-				JSONResponse(w, http.StatusInternalServerError, "NOT OK")
-				return
-			}
-
 			JSONResponse(w, http.StatusOK, "OK")
 		}()
 	}
