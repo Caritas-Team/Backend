@@ -55,3 +55,6 @@ logging:
   level: "debug"
   format: "json"
 
+# Jaeger
+jaeger:
+    endpoint: "localhost:4318"

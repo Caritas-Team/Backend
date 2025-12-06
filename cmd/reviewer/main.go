@@ -17,6 +17,15 @@ import (
 	"github.com/Caritas-Team/reviewer/internal/metrics"
 	"github.com/Caritas-Team/reviewer/internal/usecase/file"
 	"github.com/Caritas-Team/reviewer/internal/usecase/user"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace"
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
+	"go.opentelemetry.io/otel/propagation"
+	"go.opentelemetry.io/otel/sdk/resource"
+
+	tracesdk "go.opentelemetry.io/otel/sdk/trace"
+	semconv "go.opentelemetry.io/otel/semconv/v1.21.0"
 )
 
 func main() {
@@ -32,6 +41,20 @@ func main() {
 
 	// Глобальный логер
 	log := logger.NewLogger(cfg)
+
+	// Jaeger
+	shutdownTracer, err := initTracer(ctx, "reviewer", cfg.Jaeger.Endpoint)
+	if err != nil {
+		slog.Error("tracer init error", "err", err)
+		return
+	}
+	defer func() {
+		shCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := shutdownTracer(shCtx); err != nil {
+			slog.Error("tracer shutdown error", "err", err)
+		}
+	}()
 
 	// Контекст, отменяемый по SIGINT/SIGTERM
 	rootCtx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
@@ -88,6 +111,8 @@ func main() {
 	h = rateLimiterMiddleware.Handler(h)
 	h = handler.LoggingMiddleware(log, h)
 
+	h = otelhttp.NewHandler(h, "http-server")
+
 	// HTTP сервер
 	srv := &http.Server{
 		Addr:         cfg.Server.Addr(),
@@ -140,4 +165,41 @@ func main() {
 
 	log.Info("graceful shutdown finished")
 
+}
+
+func initTracer(ctx context.Context, serviceName, endpoint string) (func(context.Context) error, error) {
+	if endpoint == "" {
+		endpoint = "localhost:4318"
+	}
+
+	client := otlptracehttp.NewClient(
+		otlptracehttp.WithEndpoint(endpoint),
+		otlptracehttp.WithInsecure(),
+	)
+
+	// Экспортёр поверх клиента
+	exp, err := otlptrace.New(ctx, client)
+	if err != nil {
+		return nil, err
+	}
+
+	tp := tracesdk.NewTracerProvider(
+		tracesdk.WithBatcher(exp),
+		tracesdk.WithResource(
+			resource.NewWithAttributes(
+				semconv.SchemaURL,
+				semconv.ServiceName(serviceName),
+			),
+		),
+	)
+
+	otel.SetTracerProvider(tp)
+	otel.SetTextMapPropagator(
+		propagation.NewCompositeTextMapPropagator(
+			propagation.TraceContext{},
+			propagation.Baggage{},
+		),
+	)
+
+	return tp.Shutdown, nil
 }
